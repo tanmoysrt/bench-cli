@@ -345,6 +345,17 @@ admin_group() {
     esac
 }
 
+# Bench services run as `systemctl --user` units, so the bench user's systemd
+# instance must stay alive with no login session. Enabling lingering also
+# starts it, creating the D-Bus socket every `systemctl --user` call needs.
+systemd_booted() {
+    [ -d /run/systemd/system ] && command -v loginctl >/dev/null 2>&1
+}
+
+linger_enabled() {
+    [ "$(loginctl show-user "$1" --property=Linger 2>/dev/null)" = "Linger=yes" ]
+}
+
 # ── Path A: running as root → create the bench user, then stop ───────────────
 # We do NOT switch users on the fly. We prepare the account and ask the operator
 # to re-run the installer as that user.
@@ -355,6 +366,11 @@ if [ "$(id -u)" -eq 0 ]; then
         echo "Creating user '$BENCH_USER'..."
         useradd -m -s /bin/bash "$BENCH_USER"
         usermod -aG "$(admin_group)" "$BENCH_USER" 2>/dev/null || true
+    fi
+
+    if systemd_booted && ! linger_enabled "$BENCH_USER"; then
+        echo "Enabling systemd lingering for '$BENCH_USER'..."
+        loginctl enable-linger "$BENCH_USER"
     fi
 
     echo ""
@@ -375,6 +391,22 @@ fi
 # All system-wide, privileged setup (base tools, database engines, Node.js)
 # already happened in bootstrap() above — as root, or earlier in this same
 # run if a base tool was missing — so nothing below here needs sudo.
+# Lingering is normally enabled by the root pass above. If this user was
+# prepared some other way, only root can turn it on — fail here rather than
+# midway through `bench init`, where systemctl --user has no bus to talk to.
+if systemd_booted && ! linger_enabled "$(id -un)"; then
+    if ! sudo -n loginctl enable-linger "$(id -un)" 2>/dev/null; then
+        echo "systemd lingering is not enabled for '$(id -un)', and this user cannot" >&2
+        echo "enable it without a password. Bench services run as systemctl --user" >&2
+        echo "units, which need it." >&2
+        echo "" >&2
+        echo "Run this as root, then re-run the installer:" >&2
+        echo "" >&2
+        echo "   loginctl enable-linger $(id -un)" >&2
+        exit 1
+    fi
+fi
+
 echo "Setting up your environment..."
 
 # ── fetch pilot: release tarball (default) or git clone (--dev) ────────────────
