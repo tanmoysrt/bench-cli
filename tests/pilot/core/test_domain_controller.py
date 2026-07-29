@@ -170,6 +170,26 @@ def test_register_transport_failure_raises_domain_provider_error(tmp_path: Path,
         DomainRouteProvider(bench).register("mysite", "app.example.com")
 
 
+_DECLINE_WITH_MESSAGE_PROVIDER = """#!/usr/bin/env python3
+import json, sys
+sys.stderr.write("internal: quota row locked")
+print(json.dumps({"message": "That domain is already taken."}))
+sys.exit(2)
+"""
+
+
+def test_register_decline_carries_opted_in_public_message(tmp_path: Path, monkeypatch) -> None:
+    _install_provider(tmp_path, monkeypatch, body=_DECLINE_WITH_MESSAGE_PROVIDER)
+    bench = _make_bench(tmp_path)
+    _write_site(bench, "mysite")
+
+    with pytest.raises(DomainConflictError) as excinfo:
+        DomainRouteProvider(bench).register("mysite", "app.example.com")
+
+    assert excinfo.value.public_message == "That domain is already taken."
+    assert "quota row locked" not in (excinfo.value.public_message or "")
+
+
 def test_host_queries_empty_without_provider(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert DomainRouteProvider.wildcard_domains() == []

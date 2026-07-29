@@ -224,19 +224,21 @@ def remove_domain(name: str, domain: str):
     return accepted_task_response(bench_root, task_id)
 
 
-def _domain_conflict():
-    return error_response("domain_conflict", "The domain conflicts with the current site state.", 409)
+def _domain_conflict(public_message: str | None):
+    return error_response(
+        "domain_conflict", public_message or "The domain conflicts with the current site state.", 409
+    )
 
 
 def _domain_failure(error: BenchError, message: str):
     if isinstance(error, ConfigError):
         raise error
     if isinstance(error, DomainConflictError):
-        return _domain_conflict()
+        return _domain_conflict(error.public_message)
     if isinstance(error, DomainProviderError):
         return error_response(
             "domain_provider_unavailable",
-            "The domain provider is unavailable.",
+            error.public_message or "The domain provider is unavailable.",
             503,
         )
     return internal_error(message)

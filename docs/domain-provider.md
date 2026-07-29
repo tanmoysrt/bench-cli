@@ -92,10 +92,13 @@ Prefer fail-soft behavior here. A non-zero exit breaks nginx setup.
 
 ## Errors
 
-Use one error mechanism: exit non-zero and write the message to stderr. Pilot shows stderr to the user and ignores stdout on failure.
+Exit non-zero and write a message to stderr for logs. Stderr may contain internal detail (API URLs, request IDs) and is never shown to the end user - the Admin UI shows a generic message instead.
+
+To show the end user a specific, safe reason (e.g. "domain already taken"), also print a JSON object to stdout: `{"message": "<reason>"}`. This is optional; omit it and pilot falls back to a generic message.
 
 ```sh
 echo "subdomain 'app' is already taken" >&2
+echo '{"message": "That subdomain is already taken."}'
 exit 2
 ```
 

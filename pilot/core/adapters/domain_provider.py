@@ -14,9 +14,20 @@ from pilot.utils import host_owner, normalize_host, write_private_text
 if TYPE_CHECKING:
     from pilot.core.bench import Bench
 
-# Optional managed-hosting hook. Failures surface stderr as the user error.
-# Data verbs return one JSON value on stdout; register/deregister stdout is ignored.
+# Optional managed-hosting hook. Failures surface stderr internally; a provider may
+# additionally opt in to a caller-safe reason via {"message": "..."} on stdout.
+# Data verbs return one JSON value on stdout on success; register/deregister ignore it.
 _PROVIDER_BIN = "bench-domain-provider"
+
+
+def _provider_public_message(stdout: str) -> str | None:
+    """A provider's optional opt-in, caller-safe reason: {"message": "..."} on stdout."""
+    try:
+        data = json.loads(stdout.strip())
+    except ValueError:
+        return None
+    message = data.get("message") if isinstance(data, dict) else None
+    return message.strip() if isinstance(message, str) and message.strip() else None
 
 
 class DomainRouteProvider:
@@ -138,10 +149,17 @@ class DomainRouteProvider:
             return False, None
         argv = [exe, action, *([site] if site else []), *([domain] if domain else [])]
         result = subprocess.run(argv, capture_output=True, text=True)
-        if result.returncode == 2:
-            raise DomainConflictError(result.stderr.strip() or f"{domain or site} was declined.")
         if result.returncode != 0:
-            raise DomainProviderError(result.stderr.strip() or f"{_PROVIDER_BIN} {action} failed.")
+            public_message = _provider_public_message(result.stdout)
+            if result.returncode == 2:
+                raise DomainConflictError(
+                    result.stderr.strip() or f"{domain or site} was declined.",
+                    public_message=public_message,
+                )
+            raise DomainProviderError(
+                result.stderr.strip() or f"{_PROVIDER_BIN} {action} failed.",
+                public_message=public_message,
+            )
         # Do not parse status text from mutating verbs.
         if action in ("register", "deregister"):
             return True, None
@@ -152,33 +170,35 @@ class DomainRouteProvider:
         """Normalize domain and reject duplicates across sibling benches."""
         domain = normalize_host(domain)
         if not domain:
-            raise DomainConflictError("A domain is required.")
+            raise DomainConflictError("A domain is required.", public_message="A domain is required.")
         if domain == normalize_host(self.bench.config.admin.domain):
-            raise DomainConflictError(f"{domain} is already used by this bench's admin domain.")
+            message = f"{domain} is already used by this bench's admin domain."
+            raise DomainConflictError(message, public_message=message)
         for site in self.bench.sites():
             if domain in (normalize_host(d) for d in site.config.all_domains):
                 if site.config.name == site_name:
-                    raise DomainConflictError(f"{domain} is already attached to this site.")
-                raise DomainConflictError(
-                    f"{domain} is already used by site '{site.config.name}' in this bench."
-                )
+                    message = f"{domain} is already attached to this site."
+                    raise DomainConflictError(message, public_message=message)
+                message = f"{domain} is already used by site '{site.config.name}' in this bench."
+                raise DomainConflictError(message, public_message=message)
         owner = host_owner(self.bench.path, domain)
         if owner:
-            raise DomainConflictError(
-                f"{domain} is already used by bench '{owner}'. Hostnames must be unique across benches."
-            )
+            message = f"{domain} is already used by bench '{owner}'. Hostnames must be unique across benches."
+            raise DomainConflictError(message, public_message=message)
         return domain
 
     def _verify(self, site_name: str, domain: str) -> None:
         """Raise unless the domain resolves to this server."""
         candidate = self._resolve(domain)
         if not candidate:
-            raise DomainConflictError(f"{domain} doesn't resolve yet. Retry once DNS has updated.")
+            message = f"{domain} doesn't resolve yet. Retry once DNS has updated."
+            raise DomainConflictError(message, public_message=message)
         expected = self._resolve(site_name)
         if ip := self._server_ip():
             expected.add(ip)
         if not (candidate & expected):
-            raise DomainConflictError(f"{domain} doesn't point here yet. Retry once DNS has updated.")
+            message = f"{domain} doesn't point here yet. Retry once DNS has updated."
+            raise DomainConflictError(message, public_message=message)
 
     @staticmethod
     def _server_ip() -> str:

@@ -140,3 +140,38 @@ def test_domain_failures_preserve_their_semantics(
     assert response.status_code == status
     assert response.get_json()["error"]["code"] == code
     assert b"secret" not in response.data
+
+
+@pytest.mark.parametrize(
+    ("error", "status", "code"),
+    [
+        (DomainConflictError("stderr detail", public_message="safe reason"), 409, "domain_conflict"),
+        (
+            DomainProviderError("stderr detail", public_message="safe reason"),
+            503,
+            "domain_provider_unavailable",
+        ),
+    ],
+)
+def test_domain_failures_surface_an_opted_in_public_message(
+    tmp_path: Path,
+    error: Exception,
+    status: int,
+    code: str,
+) -> None:
+    bench_root = tmp_path / "bench"
+    client = _client(bench_root)
+    site_dir = bench_root / "sites" / "site.test"
+    site_dir.mkdir(parents=True)
+    (site_dir / "site_config.json").write_text("{}")
+    site_domains = Mock()
+    site_domains.names.side_effect = error
+
+    with patch("admin.backend.api.v1.sites.domains._site_domains", return_value=site_domains):
+        response = client.get("/api/v1/sites/site.test/domains")
+
+    assert response.status_code == status
+    body = response.get_json()
+    assert body["error"]["code"] == code
+    assert body["error"]["message"] == "safe reason"
+    assert b"stderr detail" not in response.data

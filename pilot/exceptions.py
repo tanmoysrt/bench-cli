@@ -49,11 +49,23 @@ class AppValidationError(BenchError):
 
 
 class DomainConflictError(BenchError):
-    pass
+    """message may hold untrusted provider stderr; public_message, when set, is
+    known-safe text (pilot's own text, or a provider's explicit opt-in) an API
+    may show to the caller."""
+
+    def __init__(self, message: str, *, public_message: str | None = None):
+        super().__init__(message)
+        self.public_message = public_message
 
 
 class DomainProviderError(BenchError):
-    pass
+    """message may hold untrusted provider stderr; public_message, when set, is
+    known-safe text (pilot's own text, or a provider's explicit opt-in) an API
+    may show to the caller."""
+
+    def __init__(self, message: str, *, public_message: str | None = None):
+        super().__init__(message)
+        self.public_message = public_message
 
 
 class RegistryError(BenchError):
