@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,7 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from pilot.integrations.llm import base, frappe_llm, lite, read_system_prompt, registry
+from pilot.integrations.llm import base, frappe_llm, read_system_prompt, registry
 from pilot.integrations.llm.base import LLMAuthError, LLMError
 from pilot.integrations.llm.frappe_llm import FrappeLLMIntegration
 from pilot.integrations.llm.lite import LiteLLMIntegration
@@ -67,8 +68,8 @@ def fake_litellm(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
         APIConnectionError=_FakeAPIConnectionError,
         Timeout=_FakeTimeout,
     )
-    monkeypatch.setattr(base, "litellm", stub)
-    monkeypatch.setattr(lite, "litellm", stub)
+    # base and lite import litellm inside their functions, so patch the module itself.
+    monkeypatch.setitem(sys.modules, "litellm", stub)
     return stub
 
 
@@ -144,7 +145,6 @@ def test_api_error_maps(fake_litellm) -> None:
 
 def test_provider_options_aggregate_across_integrations(fake_litellm) -> None:
     options = {o["value"]: o for o in registry.provider_options()}
-    # litellm providers present in the (fake) catalog
     assert "openai" in options and "anthropic" in options
     assert options["openai"]["requires_api_base"] is False
     assert options["openai"]["free_text_model"] is False
@@ -157,9 +157,9 @@ def test_provider_options_aggregate_across_integrations(fake_litellm) -> None:
     assert options["self-hosted"]["free_text_model"] is True
 
 
-def test_litellm_providers_filtered_to_catalogued(fake_litellm) -> None:
-    # gemini is curated but absent from the fake catalog, so it's not offered.
-    assert "gemini" not in {o["value"] for o in registry.provider_options()}
+def test_provider_options_need_no_litellm() -> None:
+    # No fake_litellm: listing providers must not reach for the slow import.
+    assert "gemini" in {o["value"] for o in registry.provider_options()}
 
 
 def test_models_for(fake_litellm) -> None:

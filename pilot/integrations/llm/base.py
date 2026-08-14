@@ -12,8 +12,6 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import ClassVar
 
-import litellm
-
 from pilot.exceptions import BenchError
 from pilot.integrations.llm import read_system_prompt
 
@@ -108,7 +106,10 @@ class LLMIntegration:
         return self._answer_text(raw, cache_key)
 
     def _complete(self, system_prompt: str, prompt: str, max_tokens: int, **kwargs):
-        """Call litellm, mapping its errors onto ours."""
+        """Call litellm, mapping its errors onto ours. Imported here because the
+        import costs seconds, and every settings page load would pay it."""
+        import litellm
+
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}]
         try:
             return litellm.completion(

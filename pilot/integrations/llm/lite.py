@@ -2,16 +2,14 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-import litellm
-
 from pilot.integrations.llm.base import LLMIntegration
 
 
 class LiteLLMIntegration(LLMIntegration):
     """Major providers from litellm's catalog, routed as ``provider/model``."""
 
-    # Curated major providers; each is listed only if litellm has a model catalog
-    # for it. Routing and model listing come straight from litellm.
+    # Curated major providers. Routing and model listing come straight from litellm,
+    # which only get_models imports - listing them must not cost that import.
     _SUPPORTED_LITELLM_PROVIDERS: ClassVar[dict[str, str]] = {
         "openai": "OpenAI",
         "anthropic": "Anthropic",
@@ -30,12 +28,10 @@ class LiteLLMIntegration(LLMIntegration):
 
     @classmethod
     def providers(cls) -> dict[str, str]:
-        return {
-            slug: label
-            for slug, label in cls._SUPPORTED_LITELLM_PROVIDERS.items()
-            if slug in litellm.models_by_provider
-        }
+        return dict(cls._SUPPORTED_LITELLM_PROVIDERS)
 
     @classmethod
     def get_models(cls, provider: str, api_key: str = "", api_base: str = "") -> list[str]:
+        import litellm
+
         return sorted(litellm.models_by_provider.get(provider, set()))
