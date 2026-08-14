@@ -564,19 +564,6 @@ def test_invalid_db_type_rejected() -> None:
     assert "bench.db_type" in str(exc_info.value)
 
 
-def test_toml_writer_preserves_malloc_arena_max_zero() -> None:
-    """0 is a real, meaningful value (disables the cap) - `or 2` would silently
-    coerce it back to the default on every write."""
-    import tomllib
-
-    config = load_from_dict(copy.deepcopy(MINIMAL_VALID_DATA))
-    config.gunicorn.malloc_arena_max = 0
-    toml = config.dumps()
-    assert "malloc_arena_max = 0" in toml
-    reloaded = BenchConfig._from_dict(tomllib.loads(toml))
-    assert reloaded.gunicorn.malloc_arena_max == 0
-
-
 def test_firewall_defaults_to_off_and_open() -> None:
     config = load_from_dict(copy.deepcopy(MINIMAL_VALID_DATA))
     assert config.firewall.enabled is False
@@ -696,7 +683,6 @@ def test_every_field_survives_a_round_trip(tmp_path: Path) -> None:
     config.gunicorn.threads = 17
     config.gunicorn.timeout = 121
     config.gunicorn.worker_class = "sync"
-    config.gunicorn.malloc_arena_max = 4
     config.gunicorn.max_requests = 2001
     config.gunicorn.max_requests_jitter = 501
 

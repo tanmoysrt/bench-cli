@@ -551,7 +551,6 @@ class BenchConfig:
             "threads": self.gunicorn.threads,
             "timeout": self.gunicorn.timeout,
             "worker_class": self.gunicorn.worker_class,
-            "malloc_arena_max": self.gunicorn.malloc_arena_max,
             "max_requests": self.gunicorn.max_requests,
             "max_requests_jitter": self.gunicorn.max_requests_jitter,
         }
@@ -860,6 +859,7 @@ _BENCH_KEYS = {
 }
 # Keys older Pilot versions wrote that the parser still tolerates.
 _PRODUCTION_LEGACY = {"lightweight", "nginx", "use_companion_manager"}
+_GUNICORN_LEGACY = {"malloc_arena_max"}
 _WORKER_LEGACY = {"queue"}
 
 
@@ -870,7 +870,7 @@ def _bench_schema() -> _Table:
             "redis": _Table(keys=_keys(RedisConfig)),
             "production": _Table(keys=_keys(ProductionConfig) | _PRODUCTION_LEGACY),
             "lite_mode": _Table(keys=_keys(LiteModeConfig)),
-            "gunicorn": _Table(keys=_keys(GunicornConfig)),
+            "gunicorn": _Table(keys=_keys(GunicornConfig) | _GUNICORN_LEGACY),
             "admin": _Table(keys=_keys(AdminConfig)),
             "s3": _Table(keys=_keys(S3Config)),
             "llm": _Table(keys=_keys(LLMConfig)),

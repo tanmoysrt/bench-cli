@@ -81,11 +81,7 @@ class ProcessDefinitionBuilder:
         """Shared env for Python processes. PYTHONUNBUFFERED keeps stdout unbuffered:
         every runner captures it into a pipe or log file, where Python would otherwise
         block-buffer app-code print() until ~8KB accumulates."""
-        env = {"PYTHONUNBUFFERED": "1"}
-        arenas = self.bench.config.gunicorn.malloc_arena_max
-        if arenas and arenas > 0:
-            env["MALLOC_ARENA_MAX"] = str(arenas)
-        return env
+        return {"PYTHONUNBUFFERED": "1"}
 
     def web_definition(self, dev: bool = False) -> ProcessDefinition:
         sites = self.bench.sites_path
@@ -144,7 +140,9 @@ class ProcessDefinitionBuilder:
             name="web",
             argv=argv,
             log_file=self.bench.logs_path / "web.log",
-            env=self.python_env(),
+            # One threaded process: capping the glibc arenas keeps the heap from
+            # fragmenting across them, and preloading only pays off before a fork.
+            env={**self.python_env(), "MALLOC_ARENA_MAX": "2", "FRAPPE_PRELOAD_MODULES": "0"},
             working_dir=self.bench.sites_path,
             stop_timeout=lite_mode.stop_timeout,
         )

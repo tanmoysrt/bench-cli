@@ -9,7 +9,6 @@ class GunicornConfig:
     threads: int = 8
     timeout: int = 120
     worker_class: str = "gthread"
-    malloc_arena_max: int = 2  # cap glibc malloc arenas; 0 = unset
     max_requests: int = 2000  # recycle web worker after N requests to release heap; 0 = disabled
     max_requests_jitter: int = 500
 
@@ -21,7 +20,6 @@ class GunicornConfig:
             threads=data.get("threads", d.threads),
             timeout=data.get("timeout", d.timeout),
             worker_class=data.get("worker_class", d.worker_class),
-            malloc_arena_max=data.get("malloc_arena_max", d.malloc_arena_max),
             max_requests=data.get("max_requests", d.max_requests),
             max_requests_jitter=data.get("max_requests_jitter", d.max_requests_jitter),
         )
@@ -35,10 +33,6 @@ class GunicornConfig:
             raise ConfigError(f"gunicorn.timeout must be a positive integer, got '{self.timeout}'.")
         if not self.worker_class:
             raise ConfigError("gunicorn.worker_class must not be empty.")
-        if not isinstance(self.malloc_arena_max, int) or self.malloc_arena_max < 0:
-            raise ConfigError(
-                f"gunicorn.malloc_arena_max must be a non-negative integer, got '{self.malloc_arena_max}'."
-            )
         if not isinstance(self.max_requests, int) or self.max_requests < 0:
             raise ConfigError(
                 f"gunicorn.max_requests must be a non-negative integer, got '{self.max_requests}'."

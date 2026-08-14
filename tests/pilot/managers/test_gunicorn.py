@@ -53,7 +53,6 @@ def test_gunicorn_config_defaults() -> None:
     assert cfg.threads == 8
     assert cfg.timeout == 120
     assert cfg.worker_class == "gthread"
-    assert cfg.malloc_arena_max == 2
 
 
 def test_gunicorn_default_bind_uses_bench_http_port(tmp_path: Path) -> None:
@@ -334,36 +333,12 @@ def test_production_definitions_do_not_add_a_separate_task_worker(
     assert "task-worker" not in names
 
 
-def test_malloc_arena_max_in_units(tmp_path: Path) -> None:
-    from pilot.managers.processes.supervisor import SupervisorRenderer
-    from pilot.managers.processes.systemd import SystemdProcessManager, SystemdRenderer
+def test_only_lite_and_admin_cap_glibc_arenas(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
 
-    bench = make_bench(tmp_path, gunicorn=GunicornConfig())  # default arena 2
-    systemd = SystemdProcessManager(bench)
-    web = next(pd for pd in systemd._prod_process_definitions() if pd.name == "web")
-    assert "Environment=MALLOC_ARENA_MAX=2" in SystemdRenderer("test-bench").render(web)
-    assert 'MALLOC_ARENA_MAX="2"' in SupervisorRenderer("test-bench", bench.logs_path).render(web)
-
-    # 0 disables the cap (no env emitted).
-    bench0 = make_bench(tmp_path, gunicorn=GunicornConfig(malloc_arena_max=0))
-    systemd0 = SystemdProcessManager(bench0)
-    web0 = next(pd for pd in systemd0._prod_process_definitions() if pd.name == "web")
-    assert "MALLOC_ARENA_MAX" not in SystemdRenderer("test-bench").render(web0)
-
-
-def test_malloc_arena_max_validation(tmp_path: Path) -> None:
-    with pytest.raises(ConfigError):
-        make_bench(tmp_path, gunicorn=GunicornConfig(malloc_arena_max=-1)).config.validate()
-
-
-def test_python_env_caps_glibc_arenas(tmp_path: Path) -> None:
-    bench = make_bench(tmp_path, GunicornConfig(malloc_arena_max=2))
-    assert _definitions(bench).python_env()["MALLOC_ARENA_MAX"] == "2"
-
-    bench0 = make_bench(tmp_path, GunicornConfig(malloc_arena_max=0))
-    assert "MALLOC_ARENA_MAX" not in _definitions(bench0).python_env()
-
-
+    assert "MALLOC_ARENA_MAX" not in _definitions(bench).python_env()
+    admin = next(pd for pd in _definitions(bench).prod_process_definitions() if pd.name == "admin")
+    assert admin.env["MALLOC_ARENA_MAX"] == "2"
 def test_python_processes_run_unbuffered(tmp_path: Path) -> None:
     bench = make_bench(tmp_path, GunicornConfig())
     definitions = _definitions(bench)
