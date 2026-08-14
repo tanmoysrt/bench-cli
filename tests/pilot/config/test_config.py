@@ -447,14 +447,6 @@ def test_lite_drains_must_be_positive() -> None:
         load_from_dict(data)
 
 
-def test_lite_embeds_realtime_in_its_own_process() -> None:
-    data = copy.deepcopy(MINIMAL_VALID_DATA)
-    assert load_from_dict(data).realtime_backend == "node"
-
-    data["lite_mode"] = {"enabled": True}
-    assert load_from_dict(data).realtime_backend == "python-embedded"
-
-
 def test_worker_queues_are_deduped_across_groups() -> None:
     data = copy.deepcopy(MINIMAL_VALID_DATA)
     data["workers"] = [

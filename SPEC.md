@@ -53,6 +53,7 @@ The stable top-level config groups are:
 - `[redis]`
 - `[[workers]]`
 - `[production]`
+- `[lite_mode]`
 - `[monitor]`
 - `[gunicorn]`
 - `[admin]`

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from pilot.config import (
@@ -32,6 +33,9 @@ def make_bench(tmp_path: Path, lite_mode: LiteModeConfig | None = None) -> Bench
         ),
         lite_mode=lite_mode or LiteModeConfig(enabled=True),
     )
+    runner = tmp_path / "apps" / "frappe" / "frappe" / "runner.py"
+    runner.parent.mkdir(parents=True, exist_ok=True)
+    runner.touch()
     return Bench(config, tmp_path)
 
 
@@ -94,6 +98,37 @@ def test_lite_job_threads_total_the_worker_counts(tmp_path: Path) -> None:
     assert _argument(make_bench(tmp_path), "--job-threads") == "3"
 
 
+def test_lite_embeds_realtime_on_the_web_port(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+
+    bench.sites_path.mkdir(parents=True, exist_ok=True)
+    bench.write_common_site_config()
+    common = json.loads((bench.sites_path / "common_site_config.json").read_text())
+
+    assert bench.realtime_port == bench.config.http_port
+    assert common["socketio_port"] == bench.config.http_port
+
+
+def test_a_frappe_without_the_runner_keeps_the_ordinary_set(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    (tmp_path / "apps" / "frappe" / "frappe" / "runner.py").unlink()
+
+    assert bench.is_lite_mode is False
+    assert bench.realtime_port == bench.config.socketio_port
+    assert "socketio" in {pd.name for pd in _definitions(bench).prod_process_definitions()}
+
+
+def test_enforcing_the_rules_reverts_lite_mode_without_a_runner(tmp_path: Path) -> None:
+    bench = make_bench(tmp_path)
+    (tmp_path / "apps" / "frappe" / "frappe" / "runner.py").unlink()
+    audited: list[tuple[str, dict]] = []
+    bench.audit_action = lambda category, fields: audited.append((category, fields))
+
+    assert bench.enforce_lite_mode_rules() is True
+    assert bench.config.lite_mode.enabled is False
+    assert audited[0][0] == "lite_mode_disabled"
+
+
 def test_lite_mode_survives_a_single_worker_group(tmp_path: Path) -> None:
     bench = make_bench(tmp_path)
     bench.config.workers.groups = [WorkerGroup(queues=["default", "short", "long"], count=4)]
@@ -102,15 +137,17 @@ def test_lite_mode_survives_a_single_worker_group(tmp_path: Path) -> None:
     assert bench.config.lite_mode.enabled is True
 
 
-def test_lite_mode_disables_itself_on_multiple_worker_groups(tmp_path: Path) -> None:
-    # Per-queue counts cannot be honoured by one pool, so the mode gives way.
+def test_lite_mode_folds_multiple_worker_groups_into_one(tmp_path: Path) -> None:
     bench = make_bench(tmp_path)
     audited: list[tuple[str, dict]] = []
     bench.audit_action = lambda category, fields: audited.append((category, fields))
 
     assert bench.enforce_lite_mode_rules() is True
-    assert bench.config.lite_mode.enabled is False
-    assert audited[0][0] == "lite_mode_disabled"
+    assert bench.config.lite_mode.enabled is True
+    assert [(group.queues, group.count) for group in bench.config.workers.groups] == [
+        (["default", "short", "long"], 3)
+    ]
+    assert audited[0][0] == "worker_groups_collapsed"
     assert audited[0][1]["groups"] == 2
 
 

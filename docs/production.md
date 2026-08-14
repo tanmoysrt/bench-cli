@@ -33,6 +33,10 @@ pilot setup letsencrypt
 
 Supported managers are `systemd` and `supervisor`.
 
+The deployed process set is web, socketio, admin, workers, and the two redis
+servers. With `[lite_mode] enabled` it collapses to one bench process plus admin and
+redis - see [Lite Mode](configuration.md#lite-mode).
+
 Runtime commands:
 
 - `pilot start`

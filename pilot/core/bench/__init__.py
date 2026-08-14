@@ -269,15 +269,38 @@ class Bench:
 
         BenchRuntime(self).install_requirements(on_progress)
 
+    @property
+    def supports_lite_mode(self) -> bool:
+        """Whether this bench's frappe ships the one process lite mode runs."""
+        return (self.apps_path / "frappe" / "frappe" / "runner.py").is_file()
+
+    @property
+    def is_lite_mode(self) -> bool:
+        """The one owner of which process set applies. A frappe without the runner
+        keeps the ordinary set, however bench.toml reads."""
+        return self.config.lite_mode.enabled and self.supports_lite_mode
+
+    @property
+    def realtime_port(self) -> int:
+        """Where realtime answers. Lite serves it from the web process."""
+        return self.config.http_port if self.is_lite_mode else self.config.socketio_port
+
     def enforce_lite_mode_rules(self) -> bool:
-        """Lite mode runs one worker pool, so it cannot honour a per-queue worker
-        count. Turn it off rather than fail, and leave the reason in the audit log."""
-        groups = self.config.workers.groups
-        if not self.config.lite_mode.enabled or len(groups) == 1:
+        """Reconcile bench.toml with what lite mode can actually do here."""
+        if not self.config.lite_mode.enabled:
             return False
-        self.config.lite_mode.enabled = False
+        if not self.supports_lite_mode:
+            self.audit_action("lite_mode_disabled", {"reason": "frappe has no runner"})
+            self.config.lite_mode.enabled = False
+            self.config.write(self.path)
+            return True
+        groups = len(self.config.workers.groups)
+        if groups == 1:
+            return False
+        # One pool cannot hold a count per set of queues.
+        self.audit_action("worker_groups_collapsed", {"reason": "lite mode", "groups": groups})
+        self.config.workers.collapse()
         self.config.write(self.path)
-        self.audit_action("lite_mode_disabled", {"reason": "multiple worker groups", "groups": len(groups)})
         return True
 
     def audit_action(self, category: str, fields: dict) -> None:

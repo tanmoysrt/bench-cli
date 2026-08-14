@@ -25,12 +25,16 @@ _SYSTEMCTL_TIMEOUT = 90
 class SystemdProcessManager(SystemdUserMixin, ManagedProcessManager):
     """Manages bench processes via systemd --user (no sudo required)."""
 
+    # Until write_config compares them, assume admin needs re-activation.
+    admin_units_changed = True
+
     @property
     def systemd_conf_dir(self) -> Path:
         return self.bench.config_path / "services"
 
     @override
     def write_config(self) -> None:
+        admin_units_before = self._admin_unit_text()
         AdminEnvManager(cli_root()).ensure()
         self._ensure_redis_config()
         self._ensure_gunicorn_config()
@@ -54,6 +58,14 @@ class SystemdProcessManager(SystemdUserMixin, ManagedProcessManager):
                 (self.systemd_conf_dir / self._unit_name(pd.name)).write_text(renderer.render(pd))
                 workload_units.append(self._unit_name(pd.name))
         (self.systemd_conf_dir / self._target_name()).write_text(renderer.render_target(workload_units))
+        self.admin_units_changed = self._admin_unit_text() != admin_units_before
+
+    def _admin_unit_text(self) -> list[str]:
+        """The admin unit files as they stand on disk."""
+        names = (self._unit_name("admin"), self._admin_socket_name())
+        return [
+            path.read_text() if (path := self.systemd_conf_dir / name).is_file() else "" for name in names
+        ]
 
     @override
     def install_config(self) -> None:
@@ -92,7 +104,10 @@ class SystemdProcessManager(SystemdUserMixin, ManagedProcessManager):
         # reset-failed clears rate-limit state so re-deploys can restart the admin socket.
         subprocess.run(self._systemctl("reset-failed", *units), capture_output=True, env=env)
         run_command(self._systemctl("enable", self._target_name()), env=env)
-        self._activate_admin_socket(env)
+        # Re-activating admin costs a graceful gunicorn stop; a workload-only change
+        # must not pay for it.
+        if self.admin_units_changed or not self.are_units_running(UnitGroup.ADMIN):
+            self._activate_admin_socket(env)
 
     @staticmethod
     def _ensure_linger() -> None:

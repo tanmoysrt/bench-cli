@@ -70,9 +70,9 @@ class BenchConfigFiles:
                 "redis_cache": redis_cache,
                 "redis_queue": f"redis://localhost:{redis.queue_port}",
                 "redis_socketio": redis_cache,
-                "socketio_port": self.bench.config.socketio_port,
+                "socketio_port": self.bench.realtime_port,
                 "webserver_port": self.bench.config.http_port,
-                "socketio_backend": self.bench.config.realtime_backend,
+                "socketio_backend": self.bench.config.socketio_backend,
                 "monitor": True,
             }
         )

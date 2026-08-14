@@ -174,7 +174,7 @@ class NginxConfigRenderer:
             "http_port": nginx.http_port,
             "https_port": nginx.https_port,
             "client_max_body_size": nginx.client_max_body_size,
-            "socketio_port": config.socketio_port,
+            "socketio_port": self.bench.realtime_port,
             "sites_root": f"{self.bench.path}/sites",
             "logs_path": str(self.bench.logs_path),
             "acme_root": config.letsencrypt.webroot_path,

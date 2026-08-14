@@ -58,6 +58,15 @@ class _SettingsUpdateRejected(Exception):
     pass
 
 
+def lite_mode_payload(config: BenchConfig, bench_root: Path | None) -> dict:
+    """`enabled` is what actually runs, not what bench.toml says: a frappe without
+    the runner cannot serve lite mode. `supported` only decides whether to offer it."""
+    if bench_root is None:
+        return {"enabled": False, "supported": False}
+    bench = Bench(config, bench_root)
+    return {"enabled": bench.is_lite_mode, "supported": bench.supports_lite_mode}
+
+
 def build_settings_response(config: BenchConfig, bench_root: Path | None = None) -> dict:
     return {
         "is_linux": is_linux(),
@@ -103,6 +112,7 @@ def build_settings_response(config: BenchConfig, bench_root: Path | None = None)
             "process_manager": config.production.process_manager or "none",
             "enabled": config.production.enabled,
         },
+        "lite_mode": lite_mode_payload(config, bench_root),
         "admin": {
             "domain": config.admin.domain,
             "tls": config.admin.tls,

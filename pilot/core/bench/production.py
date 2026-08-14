@@ -27,23 +27,27 @@ class BenchProduction:
 
     def rebuild_process_set(self, on_progress: Callable[[str], None]) -> None:
         """Apply a changed process set, as when lite mode is switched. Unlike a
-        restart this reinstalls the units, so the ones lite mode drops are stopped
-        and unlinked instead of lingering."""
+        restart this rewrites the bench configuration and reinstalls the units, so
+        the ones lite mode drops are stopped and unlinked instead of lingering."""
         if not self.bench.config.production.enabled:
             return
 
+        from pilot.core.bench.settings import regenerate_nginx
         from pilot.managers.processes.base import ManagedProcessManager
         from pilot.managers.processes.local import ProcessManager
 
         manager = cast("ManagedProcessManager", ProcessManager.for_bench(self.bench))
         on_progress("Stopping the running processes")
         manager.stop()
+        on_progress("Rewriting the bench configuration")
+        self.bench.write_common_site_config()
+        regenerate_nginx(self.bench)
         on_progress("Installing the new process set")
         manager.write_config()
         manager.install_config()
         manager.reload_manager_config()
         on_progress("Starting the new process set")
-        manager.start()
+        manager.start_workload()
 
     def remove_production(self, on_progress: Callable[[str], None]) -> None:
         production = self.bench.config.production

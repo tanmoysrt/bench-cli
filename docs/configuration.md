@@ -81,6 +81,61 @@ process_manager = "systemd"
 
 Supported process managers are `systemd` and `supervisor`.
 
+## Lite Mode
+
+Lite mode runs the whole bench as one process - web, realtime and background jobs
+together - instead of separate web, socketio and worker processes. Every key below
+becomes a flag on `python -m frappe.runner`, which is what the `web` process runs.
+The process manager still supervises it; only the process set changes.
+
+```toml
+[lite_mode]
+enabled = true
+restart_after_requests = 5000
+restart_after_jobs = 500
+restart_idle_seconds = 300
+request_drain_seconds = 60
+job_drain_seconds = 600
+```
+
+The process recycles itself to release heap. `restart_after_requests` and
+`restart_after_jobs` are counted since the last restart, and `0` disables either
+limit. Reaching a limit only books the restart: it happens once no web request
+has been served for `restart_idle_seconds`, so it never lands mid-traffic. Only
+2xx responses count, and realtime polls and health checks are ignored - a browser
+tab and a monitor ping forever, and a process counting those would never look idle.
+
+`request_drain_seconds` and `job_drain_seconds` bound the graceful shutdown on
+every restart and stop. A job still running when its drain expires is abandoned,
+so keep `job_drain_seconds` above your longest job.
+
+Lite mode uses one worker pool. Thus `[[workers]]` holds one record. Its queues become
+`--queue`, and its `count` becomes `--job-threads`. One pool cannot give a different
+count to each set of queues. Thus pilot folds more records into one record. The queues
+of the new record are the union of the queues. Its count is the total of the counts.
+The audit log records this as `worker_groups_collapsed`. The Workers tab shows the one
+record, and it does not show an Add button.
+
+The process listens on `127.0.0.1:<bench.http_port>`. This is the address that gunicorn
+uses when lite mode is off. The process also serves realtime on this port. Thus pilot
+writes this port as `socketio_port` in `common_site_config.json`, and nginx sends
+`/socket.io` to it.
+
+The process needs the `uvicorn` and `a2wsgi` packages. Frappe declares them, but an
+environment from before frappe added them does not have them. Run
+`pilot -b <bench> setup requirements` after you update frappe.
+
+Only a frappe that has `frappe/runner.py` can run lite mode. Without this file, the
+Settings page does not show the switch, and the bench runs the usual process set. The
+next save of the settings sets `enabled` to false and records `lite_mode_disabled` in
+the audit log.
+
+A change to `enabled` starts a `switch-lite-mode` task. The task stops the workload. It
+writes `common_site_config.json` and the nginx configuration again. It installs the
+units again, and removes the units that the new mode does not use. Then it starts the
+workload again. The task does not stop admin, because the admin unit is the same in the
+two modes.
+
 ## Admin
 
 ```toml

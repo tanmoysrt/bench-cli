@@ -330,12 +330,6 @@ class BenchConfig:
     # -- derived data --
 
     @property
-    def realtime_backend(self) -> str:
-        """What frappe is told to run. Lite serves realtime from its own process,
-        so it embeds the server instead of expecting a separate one."""
-        return "python-embedded" if self.lite_mode.enabled else self.socketio_backend
-
-    @property
     def framework_app(self) -> AppConfig:
         if not self.apps:
             return AppConfig(name="frappe", repo="", branch="")

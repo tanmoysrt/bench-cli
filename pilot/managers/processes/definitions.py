@@ -30,7 +30,7 @@ class ProcessDefinitionBuilder:
         self.watch_admin_js = watch_admin_js
 
     def prod_process_definitions(self) -> list[ProcessDefinition]:
-        if self.bench.config.lite_mode.enabled:
+        if self.bench.is_lite_mode:
             # web, realtime and jobs all live in the one lite process.
             defs = [self.web_definition(), self.admin_definition()]
         elif self.bench.config.production.process_manager == "systemd":
@@ -89,7 +89,7 @@ class ProcessDefinitionBuilder:
 
     def web_definition(self, dev: bool = False) -> ProcessDefinition:
         sites = self.bench.sites_path
-        if self.bench.config.lite_mode.enabled:
+        if self.bench.is_lite_mode:
             return self.lite_definition(dev=dev)
         if dev:
             port = self.bench.config.http_port
@@ -127,6 +127,7 @@ class ProcessDefinitionBuilder:
             str(self.python),
             "-m",
             "frappe.runner",
+            "--host=127.0.0.1",
             f"--port={self.bench.config.http_port}",
             f"--queue={','.join(self.bench.config.workers.queues)}",
             f"--job-threads={self.bench.config.workers.count}",

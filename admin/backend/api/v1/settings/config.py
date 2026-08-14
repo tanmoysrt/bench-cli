@@ -20,6 +20,7 @@ class ConfigPatcher:
 
     def apply(self) -> str | None:
         self._apply_bench()
+        self._apply_lite_mode()
         self._apply_workers()
         self._apply_firewall()
         self._apply_waf()
@@ -45,6 +46,11 @@ class ConfigPatcher:
             self.config.default_branch = str(bench["default_branch"]).strip()
         if "allow_developer_mode" in bench:
             self.config.allow_developer_mode = bool(bench["allow_developer_mode"])
+
+    def _apply_lite_mode(self) -> None:
+        lite_mode = self.data.get("lite_mode") or {}
+        if "enabled" in lite_mode:
+            self.config.lite_mode.enabled = bool(lite_mode["enabled"])
 
     def _apply_workers(self) -> None:
         workers = self.data.get("workers")

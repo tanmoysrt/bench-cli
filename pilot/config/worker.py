@@ -32,6 +32,10 @@ class WorkerConfig:
         """Workers across every group."""
         return sum(group.count for group in self.groups)
 
+    def collapse(self) -> None:
+        """Fold the groups into one pool: the union of the queues, the total count."""
+        self.groups = [WorkerGroup(queues=self.queues, count=self.count)]
+
     @classmethod
     def from_dict(cls, data: list) -> "WorkerConfig":
         # [[workers]] array-of-tables: each group lists queues and a count.

@@ -37,6 +37,8 @@ class GunicornManager:
             f"threads = 4\n"
             f'worker_class = "gthread"\n'
             f"timeout = 120\n"
+            # The dashboard's SSE stream never ends, so the default 30s is paid in full.
+            f"graceful_timeout = 10\n"
             f"preload_app = False\n"
         )
 
