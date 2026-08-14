@@ -121,6 +121,9 @@ uses when lite mode is off. The process also serves realtime on this port. Thus 
 writes this port as `socketio_port` in `common_site_config.json`, and nginx sends
 `/socket.io` to it.
 
+One process holds one client cache. Thus pilot writes `client_cache_max_bytes` as
+10 MB in `common_site_config.json`, and removes the key when you turn lite mode off.
+
 The process needs the `uvicorn` and `a2wsgi` packages. Frappe declares them, but an
 environment from before frappe added them does not have them. Run
 `pilot -b <bench> setup requirements` after you update frappe.
