@@ -47,8 +47,10 @@ class TaskActivityReader:
         queued, running, tasks_uncertain = self._read_task_counts()
         uncertain = state_uncertain or intent_uncertain or tasks_uncertain
         worker_active = worker_state is not None and worker_state.status in _ACTIVE_WORKER_STATUSES
+        # Queued work holds the admin open until the worker claims it.
+        pending = queued > 0 and worker_intent != WorkerIntent.STOPPED
         return TaskActivity(
-            active=uncertain or worker_active or running > 0,
+            active=uncertain or worker_active or running > 0 or pending,
             uncertain=uncertain,
             worker_status=self._worker_status(worker_state, uncertain),
             desired_status=self._desired_status(worker_intent),
