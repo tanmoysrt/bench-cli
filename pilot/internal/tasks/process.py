@@ -93,7 +93,7 @@ class TaskProcess:
             except (OSError, ValueError, TaskNotFoundError):
                 return task_id
             if status == TaskStatus.RUNNING:
-                self._interrupt(task_id)
+                self.interrupt(task_id)
             elif status != TaskStatus.QUEUED:
                 self._run_stored_callback_for_status(task_id)
                 self._store.remove_private_files(
@@ -141,7 +141,7 @@ class TaskProcess:
         changed: bool = False,
     ) -> bool:
         if ownership in {ProcessOwnership.DEAD, ProcessOwnership.STALE}:
-            self._interrupt(task_id)
+            self.interrupt(task_id)
             return True
         if ownership == ProcessOwnership.UNKNOWN:
             detail = "changed" if changed else "is uncertain"
@@ -179,9 +179,10 @@ class TaskProcess:
                 process.kill()
             process.wait()
         self._store.remove_private_files(task_id, "process.json", "pid")
-        self._interrupt(task_id)
+        self.interrupt(task_id)
 
-    def _interrupt(self, task_id: str) -> None:
+    def interrupt(self, task_id: str) -> None:
+        """Fail a task whose process died without finalizing."""
         self._store.transition(
             task_id,
             TaskStatus.RUNNING,

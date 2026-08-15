@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import subprocess
@@ -12,6 +13,7 @@ from pilot.internal.tasks.store import TaskStore
 from pilot.internal.tasks.worker_state import WorkerIntent, WorkerStatus, WorkerStore
 
 _CONTROL_POLL_SECONDS = 0.2
+_ERROR_BACKOFF_SECONDS = 1.0
 
 
 class TaskWorker:
@@ -63,26 +65,32 @@ class TaskWorker:
                 self._worker.write_pid(None)
 
     def _work(self, pid: int) -> None:
+        """Survive a failed cycle instead of ending the thread."""
         while not self._drain.is_set():
-            self._wake.clear()
-            blocking_task = self._processes.reconcile()
-            if blocking_task is not None:
-                status = WorkerStatus.DRAINING if self._intent_stopped() else WorkerStatus.RUNNING
-                self._write_state(status, pid, blocking_task)
-                self._wake.wait(_CONTROL_POLL_SECONDS)
-                continue
-            if self._intent_stopped():
-                self._write_state(WorkerStatus.STOPPED, pid)
-                self._wake.wait(_CONTROL_POLL_SECONDS)
-                continue
-            if self._run_next(pid):
-                continue
-            if self._drain.is_set():
-                break
-            if self._intent_stopped():
-                continue
-            self._write_state(WorkerStatus.IDLE, pid)
+            try:
+                self._work_once(pid)
+            except Exception:
+                logging.exception("Task worker cycle failed")
+                self._wake.wait(_ERROR_BACKOFF_SECONDS)
+
+    def _work_once(self, pid: int) -> None:
+        self._wake.clear()
+        blocking_task = self._processes.reconcile()
+        if blocking_task is not None:
+            status = WorkerStatus.DRAINING if self._intent_stopped() else WorkerStatus.RUNNING
+            self._write_state(status, pid, blocking_task)
             self._wake.wait(_CONTROL_POLL_SECONDS)
+            return
+        if self._intent_stopped():
+            self._write_state(WorkerStatus.STOPPED, pid)
+            self._wake.wait(_CONTROL_POLL_SECONDS)
+            return
+        if self._run_next(pid):
+            return
+        if self._drain.is_set() or self._intent_stopped():
+            return
+        self._write_state(WorkerStatus.IDLE, pid)
+        self._wake.wait(_CONTROL_POLL_SECONDS)
 
     def _run_next(self, pid: int) -> bool:
         task_id = self._claim_next()
@@ -96,7 +104,8 @@ class TaskWorker:
             return True
         self._wait_for_task(process, pid, task_id)
         if not self._tasks.read_status(task_id).is_terminal:
-            raise RuntimeError(f"Task wrapper exited without finalizing {task_id}")
+            logging.error("Task wrapper exited without finalizing %s", task_id)
+            self._processes.interrupt(task_id)
         return True
 
     def _wait_for_task(
@@ -161,12 +170,16 @@ class WorkerRegistry:
             return worker
 
     def wake(self, bench_root: Path) -> bool:
+        """Restart this process's worker first if its thread died."""
+        key = Path(bench_root).resolve()
         with self._lock:
-            worker = self._workers.get(Path(bench_root).resolve())
-        if worker is None or not worker.is_alive():
-            return False
-        worker.wake()
-        return True
+            worker = self._workers.get(key)
+            if worker is None:
+                return False
+            if worker.is_alive():
+                worker.wake()
+                return True
+        return self.start(key).is_alive()
 
     def request_drain(self) -> None:
         with self._lock:
