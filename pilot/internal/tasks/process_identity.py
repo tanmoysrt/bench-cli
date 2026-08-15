@@ -110,6 +110,9 @@ class _ProcessBackend(Protocol):
     def iter_pids(self) -> list[int]:
         pass
 
+    def command_line(self, pid: int) -> str:
+        pass
+
 
 class _ProcSysBackend:
     """Reads process identity from /proc, as found on Linux."""
@@ -147,6 +150,10 @@ class _ProcSysBackend:
         except OSError as error:
             raise OSError from error
         return [int(entry.name) for entry in entries if entry.name.isdigit()]
+
+    def command_line(self, pid: int) -> str:
+        raw = (_PROC_ROOT / str(pid) / "cmdline").read_bytes()
+        return os.fsdecode(raw.replace(b"\0", b" "))
 
 
 class _DarwinPsBackend:
@@ -194,6 +201,9 @@ class _DarwinPsBackend:
         except (subprocess.CalledProcessError, OSError) as error:
             raise OSError(str(error)) from error
         return [int(token) for token in listing.split()]
+
+    def command_line(self, pid: int) -> str:
+        return self._run(["ps", "-ww", "-p", str(pid), "-o", "command="])
 
     @staticmethod
     def _drop_executable(command: str) -> str:
@@ -328,6 +338,22 @@ class ProcessInspector:
             except (FileNotFoundError, ProcessLookupError, PermissionError, OSError, ValueError):
                 continue
         return owned
+
+    def get_pid_matching(self, markers: list[str], hint_pid: int | None = None) -> int | None:
+        """Live pid whose command line contains every marker."""
+        if hint_pid is not None and self._command_matches(hint_pid, markers):
+            return hint_pid
+        for pid in self._iter_pids():
+            if pid != hint_pid and self._command_matches(pid, markers):
+                return pid
+        return None
+
+    def _command_matches(self, pid: int, markers: list[str]) -> bool:
+        try:
+            command = self._backend.command_line(pid)
+        except (FileNotFoundError, ProcessLookupError, PermissionError, OSError, ValueError):
+            return False
+        return all(marker in command for marker in markers)
 
     def has_pid(self, identity: ProcessIdentity, pid: int) -> bool:
         try:

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 import pilot.internal.tasks.worker as worker_module
-from pilot.internal.tasks.process import TaskProcessRecord
+from pilot.internal.tasks.process import WRAPPER_MODULE, TaskProcessRecord
 from pilot.internal.tasks.process_identity import ProcessInspector
 from pilot.internal.tasks.store import TaskStore
 from pilot.internal.tasks.worker import TaskWorker
@@ -105,7 +105,14 @@ def test_worker_waits_for_live_orphan_group_before_next_claim(
     assert store.read_status(QUEUED_TASK) == TaskStatus.SUCCESS
 
 
-def test_unknown_orphan_identity_blocks_new_claims(
+def start_wrapper_lookalike(task_dir: Path) -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)", WRAPPER_MODULE, str(task_dir)],
+        start_new_session=True,
+    )
+
+
+def test_unreadable_orphan_record_blocks_while_the_wrapper_lives(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -115,6 +122,7 @@ def test_unknown_orphan_identity_blocks_new_claims(
     store.transition(RUNNING_TASK, TaskStatus.QUEUED, TaskStatus.RUNNING)
     task_dir = store.task_dir(RUNNING_TASK)
     (task_dir / "process.json").write_text("{}")
+    wrapper = start_wrapper_lookalike(task_dir)
     started = threading.Event()
     monkeypatch.setattr(
         worker_module.TaskProcess,
@@ -123,14 +131,53 @@ def test_unknown_orphan_identity_blocks_new_claims(
     )
     worker = TaskWorker(tmp_path)
 
-    worker.start()
-    assert not started.wait(0.3)
-    worker.request_drain()
-    worker.join(2)
+    try:
+        worker.start()
+        assert not started.wait(0.3)
+        worker.request_drain()
+        worker.join(2)
+    finally:
+        wrapper.kill()
+        wrapper.wait(timeout=5)
 
     assert store.read_status(RUNNING_TASK) == TaskStatus.RUNNING
     assert store.read_status(QUEUED_TASK) == TaskStatus.QUEUED
     assert (task_dir / "process.json").exists()
+
+
+def test_unreadable_orphan_record_is_failed_when_no_wrapper_is_alive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = TaskStore(tmp_path)
+    create_task(store, RUNNING_TASK)
+    create_task(store, QUEUED_TASK)
+    store.transition(RUNNING_TASK, TaskStatus.QUEUED, TaskStatus.RUNNING)
+    (store.task_dir(RUNNING_TASK) / "process.json").write_text("{}")
+    completed = threading.Event()
+
+    class Process:
+        pid = 4323
+
+        def wait(self, timeout: float | None = None) -> int:
+            store.transition(QUEUED_TASK, TaskStatus.RUNNING, TaskStatus.SUCCESS)
+            completed.set()
+            return 0
+
+    monkeypatch.setattr(
+        worker_module.TaskProcess,
+        "start",
+        lambda self, task_id: Process(),
+    )
+    worker = TaskWorker(tmp_path)
+
+    worker.start()
+    assert completed.wait(2)
+    worker.request_drain()
+    worker.join(2)
+
+    assert store.read_status(RUNNING_TASK) == TaskStatus.FAILED
+    assert store.read_metadata(RUNNING_TASK)["failure"] == {"code": "task_interrupted"}
 
 
 def test_dead_orphan_is_failed_before_next_task_runs(
