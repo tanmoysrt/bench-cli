@@ -3,30 +3,34 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    import boto3
-    from boto3.s3.transfer import TransferConfig
-    from botocore.client import BaseClient, Config
-    from botocore.exceptions import ClientError, EndpointConnectionError
-except ImportError:
-    boto3 = TransferConfig = BaseClient = Config = None
-
-    class ClientError(Exception):  # type: ignore[no-redef]
-        pass
-
-    class EndpointConnectionError(Exception):  # type: ignore[no-redef]
-        pass
-
-
 from pilot.config import S3Config
 from pilot.exceptions import BenchError
 
-# Non-seekable streams (e.g. a subprocess's stdin pipe) still get parallel
-# range GETs: s3transfer buffers out-of-order parts and writes them in order.
-# boto3 is an optional dependency (the 'admin' extra); left unset if missing.
-_STREAM_TRANSFER = (
-    TransferConfig(multipart_chunksize=64 * 1024 * 1024, max_concurrency=8) if TransferConfig else None
-)
+boto3 = TransferConfig = Config = _STREAM_TRANSFER = None
+
+
+class ClientError(Exception):
+    """Replaced when boto3 loads."""
+
+
+class EndpointConnectionError(Exception):
+    """Replaced when boto3 loads."""
+
+
+def load_boto3() -> None:
+    """Import boto3 on first S3 use; importing it eagerly costs ~9 MB of RSS."""
+    global boto3, TransferConfig, Config, ClientError, EndpointConnectionError, _STREAM_TRANSFER
+    if boto3 is not None:
+        return
+
+    import boto3
+    from boto3.s3.transfer import TransferConfig
+    from botocore.client import Config
+    from botocore.exceptions import ClientError, EndpointConnectionError
+
+    # s3transfer buffers out-of-order parts, so non-seekable streams still get parallel range GETs.
+    _STREAM_TRANSFER = TransferConfig(multipart_chunksize=64 * 1024 * 1024, max_concurrency=8)
+
 
 ENDPOINT_TEMPLATES = {
     "aws": "https://s3.{region}.amazonaws.com",
@@ -78,11 +82,13 @@ class S3:
     provider: str
     bucket_name: str
     endpoint_url: str = field(init=False)
-    client: BaseClient = field(init=False)
+    client: Any = field(init=False)
 
     def __post_init__(self):
-        if boto3 is None:
-            raise RuntimeError("boto3 is not installed. Run: pip install boto3")
+        try:
+            load_boto3()
+        except ImportError as error:
+            raise RuntimeError("boto3 is not installed. Run: pip install boto3") from error
         try:
             self.endpoint_url = build_endpoint_url(self.provider, self.region_name)
         except ValueError as error:
